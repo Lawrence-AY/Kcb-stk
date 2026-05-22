@@ -38,7 +38,17 @@ app.post('/fines', routes.createTransaction);
 app.post('/sharecapital', routes.createTransaction);
 app.post('/wallet', routes.createTransaction);
 app.post('/savings', routes.createTransaction);
+
+// Callback endpoints
 app.post('/callback', callbackRoute);
+app.get('/callback-test', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'Callback endpoint is reachable',
+    timestamp: new Date().toISOString(),
+    ngrokUrl: req.get('x-original-url') || 'Check ngrok tunnel'
+  });
+});
 
 // Error handling
 app.use(errorHandler);
