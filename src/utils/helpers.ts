@@ -24,3 +24,9 @@ export function formatPhone(phone: string): string {
   }
   return p;
 }
+
+export function normalizeUrl(value: string): string {
+  const raw = String(value || '').trim();
+  const markdownLinkMatch = raw.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/i);
+  return markdownLinkMatch ? markdownLinkMatch[2] : raw;
+}

@@ -10,7 +10,7 @@ import callbackRoute from './routes/callback';
 
 const app = express();
 
-// Trust proxy (Cloudflare, nginx)
+// Trust reverse proxies such as nginx, Railway, Render, or local tunnels.
 app.set('trust proxy', true);
 
 // Global middleware
@@ -27,6 +27,13 @@ app.use(json({ limit: '10mb' }));
 app.use(urlencoded({ extended: true }));
 
 // Routes
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    service: 'kcb-mpesa-express',
+    timestamp: new Date().toISOString(),
+  });
+});
 app.post('/', routes.root);
 app.get('/test-auth', routes.testAuth);
 app.post('/register', routes.createTransaction);
@@ -53,6 +60,14 @@ app.get('/callback-test', (req, res) => {
 // Error handling
 app.use(errorHandler);
 
-app.listen(env.PORT, () => {
-  console.log(`Server running on port ${env.PORT}`);
-});
+export function startServer() {
+  return app.listen(env.PORT, () => {
+    console.log(`KCB M-Pesa Express server running on port ${env.PORT}`);
+  });
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+export default app;

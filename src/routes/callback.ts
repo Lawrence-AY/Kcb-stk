@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { supabase } from '../services/supabase';
+import { getRegistrationsCollection, serverTimestamp } from '../services/firebase';
 import { logger } from '../middleware/logger';
 
 export default async function callback(req: Request, res: Response) {
@@ -48,7 +48,7 @@ export default async function callback(req: Request, res: Response) {
       result_desc: ResultDesc,
       transaction_amount: transactionAmount,
       transaction_reference: receipt,
-      updated_at: new Date().toISOString(),
+      updated_at: serverTimestamp(),
     };
 
     if (!MerchantRequestID && !CheckoutRequestID) {
@@ -56,20 +56,17 @@ export default async function callback(req: Request, res: Response) {
       return res.status(200).send('OK');
     }
 
-    // Update with the appropriate identifier
-    let query = supabase.from('registrations').update(updateData);
     const matchField = MerchantRequestID ? 'merchant_request_id' : 'checkout_request_id';
     const matchValue = MerchantRequestID || CheckoutRequestID;
-    
-    query = query.eq(matchField, matchValue);
-    
+
     logger.info('Executing update query', { matchField, matchValue, updateData });
-    const { data, error } = await query.select();
-    
-    if (error) {
-      logger.error('Supabase update error', { error, matchField, matchValue });
+    const snapshot = await getRegistrationsCollection().where(matchField, '==', matchValue).limit(10).get();
+
+    if (snapshot.empty) {
+      logger.warn('Firebase update found no matching registration', { matchField, matchValue });
     } else {
-      logger.info('Supabase update successful', { rowsAffected: data?.length || 0, data });
+      await Promise.all(snapshot.docs.map((doc) => doc.ref.update(updateData)));
+      logger.info('Firebase update successful', { rowsAffected: snapshot.size, matchField, matchValue });
     }
 
     res.status(200).send('OK');
