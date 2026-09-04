@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { supabase } from '../services/supabase';
-import { stkPush, getToken } from '../services/mpesa';
-import { formatPhone, pathToCategory } from '../utils/helpers';
+import { getRegistrationsCollection, serverTimestamp } from '../services/firebase';
+import { KcbApiError, stkPush, getToken } from '../services/mpesa';
+import { formatPhone, normalizeUrl, pathToCategory } from '../utils/helpers';
 import { rateLimit } from '../services/rateLimitStore';
 import { logger } from '../middleware/logger';
 import { env } from '../config/env';
@@ -9,15 +9,25 @@ import { env } from '../config/env';
 export const createTransaction = async (req: Request, res: Response) => {
   try {
     const category = pathToCategory(req.path);
-    const { phone, amount, name, invoiceNumber: inv } = req.body;
+    const {
+      phone,
+      phoneNumber,
+      amount,
+      name,
+      invoiceNumber: inv,
+      callbackUrl: requestCallbackUrl,
+      transactionDescription,
+      description,
+    } = req.body;
 
-    if (!phone || amount === undefined) {
+    const rawPhone = phoneNumber || phone;
+    if (!rawPhone || amount === undefined) {
       return res.status(400).json({ error: 'Missing phone or amount' });
     }
 
     let formattedPhone: string;
     try {
-      formattedPhone = formatPhone(phone);
+      formattedPhone = formatPhone(rawPhone);
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
     }
@@ -41,8 +51,16 @@ export const createTransaction = async (req: Request, res: Response) => {
     }
 
     const invoiceNumber = inv || `AYEDOSSACCO-${category.slice(0, 6)}-${Date.now().toString().slice(-6)}`;
-    const shortDesc = category.slice(0, 13);
-    const callbackUrl = `${env.WORKER_BASE_URL.replace(/\/$/, '')}/callback`;
+    const shortDesc = String(transactionDescription || description || category).slice(0, 30);
+    const callbackUrl = requestCallbackUrl
+      ? normalizeUrl(requestCallbackUrl)
+      : `${env.BACKEND_BASE_URL.replace(/\/$/, '')}/callback`;
+
+    if (!/^https:\/\/[^/\s]+\/.+/i.test(callbackUrl)) {
+      return res.status(400).json({
+        error: 'Invalid callbackUrl. Use a plain secure HTTPS URL, for example https://your-ngrok-url.ngrok-free.dev/callback',
+      });
+    }
 
     const stkResult = await stkPush({
       phoneNumber: formattedPhone,
@@ -71,24 +89,21 @@ export const createTransaction = async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'STK Push response missing MerchantRequestID' });
     }
 
-    // Save to Supabase
-    const { error: dbError } = await supabase.from('registrations').insert({
+    await getRegistrationsCollection().doc(merchantRequestId).set({
       phone: formattedPhone,
       name: name || null,
       amount: amountNum,
       invoice_number: invoiceNumber,
-      checkout_request_id: checkoutRequestId,
+      checkout_request_id: checkoutRequestId || null,
       merchant_request_id: merchantRequestId,
       request_id: merchantRequestId,
       status: 'pending',
       currency: 'KES',
       channel_code: '207',
       organization_shortcode: env.SHORTCODE,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
     });
-
-    if (dbError) {
-      logger.error('Supabase insert error', dbError);
-    }
 
     res.json({
       success: true,
@@ -100,6 +115,13 @@ export const createTransaction = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     logger.error(err);
+    if (err instanceof KcbApiError) {
+      return res.status(err.status || 502).json({
+        error: err.message,
+        kcbStatus: err.status,
+        details: err.detail,
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 };
@@ -109,6 +131,14 @@ export const testAuth = async (req: Request, res: Response) => {
     const token = await getToken();
     res.json({ success: true, token_preview: token.slice(0, 20) + '...' });
   } catch (err: any) {
+    if (err instanceof KcbApiError) {
+      return res.status(err.status || 502).json({
+        success: false,
+        error: err.message,
+        kcbStatus: err.status,
+        details: err.detail,
+      });
+    }
     res.status(500).json({ success: false, error: err.message });
   }
 };
