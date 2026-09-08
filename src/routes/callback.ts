@@ -26,10 +26,14 @@ export default async function callback(req: Request, res: Response) {
       return res.status(200).send('OK');
     }
 
-    const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = stk;
+    const MerchantRequestID = stk.MerchantRequestID || stk.merchantRequestId || stk.merchant_request_id;
+    const CheckoutRequestID = stk.CheckoutRequestID || stk.checkoutRequestId || stk.checkout_request_id;
+    const ResultCode = stk.ResultCode ?? stk.resultCode ?? stk.result_code;
+    const ResultDesc = stk.ResultDesc || stk.resultDesc || stk.result_description || stk.statusMessage;
+    const CallbackMetadata = stk.CallbackMetadata || stk.callbackMetadata || stk.callback_metadata;
     logger.info('Parsed callback data', { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc });
 
-    const success = ResultCode === 0;
+    const success = Number(ResultCode) === 0;
 
     let receipt: string | null = null;
     let transactionAmount: number | null = null;
@@ -61,12 +65,27 @@ export default async function callback(req: Request, res: Response) {
 
     logger.info('Executing update query', { matchField, matchValue, updateData });
     const snapshot = await getRegistrationsCollection().where(matchField, '==', matchValue).limit(10).get();
+    const checkoutSnapshot = CheckoutRequestID
+      ? await getRegistrationsCollection().where('checkout_request_id', '==', CheckoutRequestID).limit(10).get()
+      : null;
+    const docsToUpdate = new Map<string, any>();
 
-    if (snapshot.empty) {
-      logger.warn('Firebase update found no matching registration', { matchField, matchValue });
+    snapshot.docs.forEach((doc) => docsToUpdate.set(doc.id, doc));
+    checkoutSnapshot?.docs.forEach((doc) => docsToUpdate.set(doc.id, doc));
+
+    if (!docsToUpdate.size) {
+      logger.warn('Firebase update found no matching registration', { matchField, matchValue, CheckoutRequestID });
     } else {
-      await Promise.all(snapshot.docs.map((doc) => doc.ref.update(updateData)));
-      logger.info('Firebase update successful', { rowsAffected: snapshot.size, matchField, matchValue });
+      await Promise.all([...docsToUpdate.values()].map((doc) => doc.ref.set(updateData, { merge: true })));
+      logger.info('Firebase update successful', { rowsAffected: docsToUpdate.size, matchField, matchValue, CheckoutRequestID });
+    }
+
+    if (CheckoutRequestID) {
+      await getRegistrationsCollection().doc(String(CheckoutRequestID)).set({
+        checkout_request_id: CheckoutRequestID,
+        merchant_request_id: MerchantRequestID || null,
+        ...updateData,
+      }, { merge: true });
     }
 
     res.status(200).send('OK');
