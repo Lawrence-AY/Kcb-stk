@@ -2,7 +2,7 @@ services:
   - type: web
     name: kcb-stk
     runtime: node
-    buildCommand: npm install --include=dev && npm run build
+    buildCommand: npm run render-build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
