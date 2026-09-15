@@ -5,6 +5,7 @@
   "main": "dist/app.js",
   "scripts": {
     "build": "tsc",
+    "postinstall": "npm run build",
     "render-build": "npm install --include=dev && npm run build",
     "start": "node dist/app.js",
     "dev": "ts-node src/app.ts",
