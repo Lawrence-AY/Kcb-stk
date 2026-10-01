@@ -40,8 +40,8 @@ export const createTransaction = async (req: Request, res: Response) => {
       return res.status(400).json({ error: err.message });
     }
 
-    const amountNum = parseInt(amount, 10);
-    if (isNaN(amountNum) || amountNum <= 0) {
+    const amountNum = Number(amount);
+    if (!Number.isInteger(amountNum) || amountNum <= 0) {
       return res.status(400).json({ error: 'Amount must be a positive integer' });
     }
 
@@ -85,7 +85,10 @@ export const createTransaction = async (req: Request, res: Response) => {
 
     const header = stkResult.header || {};
     const stkResponse = stkResult.response || {};
-    if (header.statusCode !== '0' || stkResponse.ResponseCode !== '0') {
+    // KCB has returned these values as both strings and numbers across environments.
+    const headerCode = header.statusCode ?? header.status_code;
+    const responseCode = stkResponse.ResponseCode ?? stkResponse.responseCode ?? stkResponse.result_code;
+    if (headerCode !== undefined && String(headerCode) !== '0' || responseCode !== undefined && String(responseCode) !== '0') {
       const errorMsg = stkResponse.CustomerMessage || header.statusDescription || 'STK Push failed';
       return res.status(400).json({ error: errorMsg });
     }
