@@ -18,6 +18,8 @@ export default async function callback(req: Request, res: Response) {
       });
       
       // Try alternative paths
+      // Production KCB IPN is commonly flat, e.g. result_code,
+      // transaction_amount, checkout_request_id and mpesa_receipt.
       stk = raw?.stkCallback || raw?.result || raw;
     }
 
@@ -28,12 +30,12 @@ export default async function callback(req: Request, res: Response) {
 
     const MerchantRequestID = stk.MerchantRequestID || stk.merchantRequestId || stk.merchant_request_id;
     const CheckoutRequestID = stk.CheckoutRequestID || stk.checkoutRequestId || stk.checkout_request_id;
-    const ResultCode = stk.ResultCode ?? stk.resultCode ?? stk.result_code;
+    const ResultCode = stk.ResultCode ?? stk.resultCode ?? stk.result_code ?? stk.resultCode;
     const ResultDesc = stk.ResultDesc || stk.resultDesc || stk.result_description || stk.statusMessage;
     const CallbackMetadata = stk.CallbackMetadata || stk.callbackMetadata || stk.callback_metadata;
     logger.info('Parsed callback data', { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc });
 
-    const success = Number(ResultCode) === 0;
+    const success = Number(ResultCode) === 0 || String(stk.status || '').toLowerCase() === 'paid' || String(stk.result || '').toLowerCase() === 'success';
 
     let receipt: string | null = null;
     let transactionAmount: number | null = null;
@@ -43,6 +45,14 @@ export default async function callback(req: Request, res: Response) {
       receipt = receiptItem?.Value || null;
       const amountItem = items.find((i: any) => i.Name === 'Amount');
       if (amountItem?.Value) transactionAmount = parseFloat(amountItem.Value);
+    }
+
+    // Flat KCB IPN fields are authoritative when present.
+    receipt = receipt || stk.mpesa_receipt || stk.mpesaReceipt || stk.mpesa_receipt_number || null;
+    if (transactionAmount === null) {
+      const flatAmount = stk.transaction_amount ?? stk.transactionAmount ?? stk.amount;
+      const parsedAmount = Number(flatAmount);
+      if (Number.isFinite(parsedAmount)) transactionAmount = parsedAmount;
     }
 
     const updateData = {
