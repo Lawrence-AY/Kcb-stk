@@ -60,6 +60,7 @@ interface StkPushParams {
 
 export async function stkPush(params: StkPushParams): Promise<any> {
   const token = await getToken();
+  const messageId = `AY${Date.now()}${Math.random().toString(36).slice(2, 8)}`.slice(0, 32);
   const payload = {
     phoneNumber: params.phoneNumber,
     amount: params.amount,
@@ -74,7 +75,12 @@ export async function stkPush(params: StkPushParams): Promise<any> {
   const response = await axios.post(targetUrl, payload, {
     headers: {
       Authorization: `Bearer ${token}`,
+      // Required by the KCB MpesaExpress production contract.
+      routeCode: '207',
+      operation: 'STKPush',
+      messageId,
       'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
     validateStatus: () => true,
   });
