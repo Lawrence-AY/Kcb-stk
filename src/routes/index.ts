@@ -58,8 +58,9 @@ export const createTransaction = async (req: Request, res: Response) => {
       return res.status(429).json({ error: 'Too many requests from this IP.' });
     }
 
-    const invoiceNumber = inv || `AYEDOSSACCO-${category.slice(0, 6)}-${Date.now().toString().slice(-6)}`;
-    const shortDesc = String(transactionDescription || description || category).slice(0, 30);
+    // KCB's production contract limits these fields to 12 and 13 characters.
+    const invoiceNumber = String(inv || `AY${Date.now().toString().slice(-10)}`).replace(/[^a-z0-9]/gi, '').slice(0, 12);
+    const shortDesc = String(transactionDescription || description || category).slice(0, 13);
     const callbackUrl = requestCallbackUrl
       ? normalizeUrl(requestCallbackUrl)
       : `${env.BACKEND_BASE_URL.replace(/\/$/, '')}/callback`;
